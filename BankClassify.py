@@ -4,9 +4,10 @@ import os
 from datetime import datetime
 
 import pandas as pd
-from textblob.classifiers import NaiveBayesClassifier
+from nltk.classify import NaiveBayesClassifier
 from colorama import init, Fore, Style
 from tabulate import tabulate
+
 
 class BankClassify():
 
@@ -19,41 +20,34 @@ class BankClassify():
         if os.path.exists(data):
             self.prev_data = pd.read_csv(self.trainingDataFile)
         else:
-            self.prev_data = pd.DataFrame(columns=['date', 'desc', 'amount', 'cat'])
+            self.prev_data = pd.DataFrame(
+                columns=['date', 'desc', 'amount', 'cat'])
+        # Prepare the dataset for training
+        dataset = [(self._extractor(row['desc']), row['cat'])
+                   for _, row in self.prev_data.iterrows()]
+        self.classifier = NaiveBayesClassifier.train(dataset)
 
-        self.classifier = NaiveBayesClassifier(self._get_training(self.prev_data), self._extractor)
-
-    def add_data(self, filename, bank="santander"):
+    def add_data(self, filename, bank="usbank"):
         """Add new data and interactively classify it.
 
         Arguments:
-         - filename: filename of Santander-format file
+         - filename: filename of Travel - Petrol file
         """
-        if bank == "santander":
-            print("adding Santander data!")
-            self.new_data = self._read_santander_file(filename)
-        elif bank == "nationwide":
-            print("adding Nationwide data!")
-            self.new_data = self._read_nationwide_file(filename)
-        elif bank == "lloyds":
-            print("adding Lloyds Bank data!")
-            self.new_data = self._read_lloyds_csv(filename)
-        elif bank == "barclays":
-            print("adding Barclays Bank data!")
-            self.new_data = self._read_barclays_csv(filename)
-        elif bank == "mint":
-            print("adding Mint data!")
-            self.new_data = self._read_mint_csv(filename)
-        elif bank == "natwest":
-            print("adding Natwest Bank data!")
-            self.new_data = self._read_natwest_csv(filename)
-        elif bank == "amex":
-            print("adding Amex Bank data!")
-            self.new_data = self._read_amex_csv(filename)
+        if bank == "usbank":
+            print("adding usbank data!")
+            self.new_data = self._read_usbank_file(filename)
+        elif bank == "boa":
+            print("adding boa data!")
+            self.new_data = self._read_boa_file(filename)
+        elif bank == "chase":
+            print("adding chase Bank data!")
+            self.new_data = self._read_chase_file(filename)
+        elif bank == "blockfi":
+            print("adding blockfi Bank data!")
+            self.new_data = self._read_blockfi_file(filename)
         else:
-            raise ValueError('new_data appears empty! probably tried an unknown bank: ' + bank)
-
-
+            raise ValueError(
+                'new_data appears empty! probably tried an unknown bank: ' + bank)
 
         self._ask_with_guess(self.new_data)
 
@@ -72,10 +66,12 @@ class BankClassify():
         self.out.amount = self.out.amount.abs()
 
         self.inc_noignore = self.inc[self.inc.cat != 'Ignore']
-        self.inc_noexpignore = self.inc[(self.inc.cat != 'Ignore') & (self.inc.cat != 'Expenses')]
+        self.inc_noexpignore = self.inc[(
+            self.inc.cat != 'Ignore') & (self.inc.cat != 'Expenses')]
 
         self.out_noignore = self.out[self.out.cat != 'Ignore']
-        self.out_noexpignore = self.out[(self.out.cat != 'Ignore') & (self.out.cat != 'Expenses')]
+        self.out_noexpignore = self.out[(
+            self.out.cat != 'Ignore') & (self.out.cat != 'Expenses')]
 
     def _read_categories(self):
         """Read list of categories from categories.txt"""
@@ -111,19 +107,21 @@ class BankClassify():
             stripped_text = self._strip_numbers(row['desc'])
 
             # Guess a category using the classifier (only if there is data in the classifier)
-            if len(self.classifier.train_set) > 1:
-                guess = self.classifier.classify(stripped_text)
-            else:
-                guess = ""
-
+            # if len(self.classifier.train_set) > 1:
+            #     guess = self.classifier.classify(stripped_text)
+            # else:
+            #     guess = ""
+            guess = self.classify(stripped_text)
 
             # Print list of categories
             print(chr(27) + "[2J")
             print(cats_table)
             print("\n\n")
             # Print transaction
-            print("On: %s\t %.2f\n%s" % (row['date'], row['amount'], row['desc']))
-            print(Fore.RED  + Style.BRIGHT + "My guess is: " + str(guess) + Fore.RESET)
+            print("On: %s\t %.2f\n%s" %
+                  (row['date'], row['amount'], row['desc']))
+            print(Fore.RED + Style.BRIGHT +
+                  "My guess is: " + str(guess) + Fore.RESET)
 
             input_value = input("> ")
 
@@ -133,7 +131,9 @@ class BankClassify():
             if input_value == "":
                 # If the input was blank then our guess was right!
                 df.at[index, 'cat'] = guess
-                self.classifier.update([(stripped_text, guess)])
+                train = self._get_training(self.prev_data)
+                self.classifier = NaiveBayesClassifier.train(train)
+
             else:
                 # Otherwise, our guess was wrong
                 try:
@@ -151,69 +151,64 @@ class BankClassify():
                 # Write correct answer
                 df.at[index, 'cat'] = category
                 # Update classifier
-                self.classifier.update([(stripped_text, category)   ])
+                train = self._get_training(self.prev_data)
+                self.classifier = NaiveBayesClassifier.train(train)
 
         return df
 
     def _make_date_index(self, df):
         """Make the index of df a Datetime index"""
-        df.index = pd.DatetimeIndex(df.date.apply(dateutil.parser.parse,dayfirst=True))
+        df.index = pd.DatetimeIndex(df.date.apply(
+            dateutil.parser.parse, dayfirst=True))
 
         return df
 
-    def _read_nationwide_file(self, filename):
-        """Read a file in the csv file that Nationwide provides downloads in.
+    def _read_usbank_file(self, filename):
+        """Read a file in the csv file that usbank provides downloads in.
 
         Returns a pd.DataFrame with columns of 'date', 'desc' and 'amount'."""
 
         with open(filename) as f:
-           lines = f.readlines()
+            lines = f.readlines()
 
+            dates = []
+            descs = []
+            amounts = []
 
-        dates = []
-        descs = []
-        amounts = []
+            for line in lines[1:]:
 
-        for line in lines[5:]:
+                line = "".join(i for i in line if ord(i) < 128)
+                if line.strip() == '':
+                    continue
 
-            line = "".join(i for i in line if ord(i)<128)
-            if line.strip() == '':
-                continue
+                splits = line.split("\",\"")
+                """
+                0 = Date yyyy-mm-dd
+                1 = Transaction type
+                2 = Name
+                3 = Memo
+                4 = Amount
+                """
+                date = splits[0].replace("\"", "").strip()
+                date = datetime.strptime(date, '%Y-%m-%d').strftime('%d/%m/%Y')
+                dates.append(date)
 
-            splits = line.split("\",\"")
-            """
-            0 = Date
-            1 = Transaction type
-            2 = Description
-            3 = Paid Out
-            4 = Paid In
-            5 = Balance
-            """
-            date = splits[0].replace("\"", "").strip()
-            date = datetime.strptime(date, '%d %b %Y').strftime('%d/%m/%Y')
-            dates.append(date)
+                amounts.append(splits[4].replace('\n', '').replace("\"", ""))
 
-            # get spend/pay in amount
-            if splits[3] != "": # paid out
-                spend = float(re.sub("[^0-9\.-]", "", splits[3])) * -1
-            else: # paid in
-                spend = float(re.sub("[^0-9\.-]", "", splits[4]))
-            
-            amounts.append(spend)
+                # Description
+                descs.append(splits[2] + splits[3])
 
-            #Description
-            descs.append(splits[2])
+            df = pd.DataFrame(
+                {'date': dates, 'desc': descs, 'amount': amounts})
 
-        df = pd.DataFrame({'date':dates, 'desc':descs, 'amount':amounts})
-
-        df['amount'] = df.amount.astype(float)
-        df['desc'] = df.desc.astype(str)
-        df['date'] = df.date.astype(str)
+            df['amount'] = df.amount.astype(float)
+            df['desc'] = df.desc.astype(str)
+            df['date'] = df.date.astype(str)
 
         return df
 
-    def _read_santander_file(self, filename):
-        """Read a file in the plain text format that Santander provides downloads in.
+    def _read_boa_file(self, filename):
+        """Read a file in the plain text format that boa provides downloads in.
 
         Returns a pd.DataFrame with columns of 'date', 'desc' and 'amount'."""
         with open(filename, errors='replace') as f:
@@ -223,28 +218,32 @@ class BankClassify():
         descs = []
         amounts = []
 
-        for line in lines[4:]:
+        for line in lines[1:]:
 
-            line = "".join(i for i in line if ord(i)<128)
+            line = "".join(i for i in line if ord(i) < 128)
             if line.strip() == '':
                 continue
 
-            splitted = line.split(":")
+            splits = line.split(",")
+            """
+            0 = Date mm/dd/yyy
+            1 = Reference Number
+            2 = payee
+            3 = address
+            4 = Amount
+            """
 
-            category = splitted[0]
-            data = ":".join(splitted[1:])
+            date = splits[0].strip()
+            date = datetime.strptime(date, '%m/%d/%Y').strftime('%d/%m/%Y')
+            dates.append(date)
 
-            if category == 'Date':
-                dates.append(data.strip())
-            elif category == 'Description':
-                descs.append(data.strip())
-            elif category == 'Amount':
-                just_numbers = re.sub("[^0-9\.-]", "", data)
-                amounts.append(just_numbers.strip())
+            amounts.append(splits[4])
 
+            # Description
+            descs.append(splits[2].replace("\"", '') +
+                         splits[3].replace("\"", ''))
 
-        df = pd.DataFrame({'date':dates, 'desc':descs, 'amount':amounts})
-
+        df = pd.DataFrame({'date': dates, 'desc': descs, 'amount': amounts})
 
         df['amount'] = df.amount.astype(float)
         df['desc'] = df.desc.astype(str)
@@ -252,149 +251,50 @@ class BankClassify():
 
         return df
 
-    def _read_lloyds_csv(self, filename):
-        """Read a file in the CSV format that Lloyds Bank provides downloads in.
+    def _read_blockfi_file(self, filename):
+        """Read a file in the plain text format that blockfi provides downloads in.
 
-        Returns a pd.DataFrame with columns of 'date' 0 , 'desc'  4 and 'amount' 5 ."""
+        Returns a pd.DataFrame with columns of 'date', 'desc' and 'amount'."""
 
-        df = pd.read_csv(filename, skiprows=0)
+        with open(filename) as f:
+            lines = f.readlines()
 
-        """Rename columns """
-        #df.columns = ['date', 'desc', 'amount']
-        df.rename(
-            columns={
-                "Transaction Date" : 'date',
-                "Transaction Description" : 'desc',
-                "Debit Amount": 'amount',
-                "Credit Amount": 'creditAmount'
-            },
-            inplace=True
-        )
+        dates = []
+        descs = []
+        amounts = []
 
-        # if its income we still want it in the amount col!
-        # manually correct each using 2 cols to create 1 col with either + or - figure
-        # lloyds outputs 2 cols, credit and debit, we want 1 col representing a +- figure
-        for index, row in df.iterrows():
-            if (row['amount'] > 0):
-                # it's a negative amount because this is a spend
-                df.at[index, 'amount'] = -row['amount']
-            elif (row['creditAmount'] > 0):
-                df.at[index, 'amount'] = row['creditAmount']
+        for line in lines:
 
-        # cast types to columns for math 
-        df = df.astype({"desc": str, "date": str, "amount": float})
+            line = "".join(i for i in line if ord(i) < 128)
+            if line.strip() == '':
+                continue
 
-        return df
-
-    def _read_barclays_csv(self, filename):
-            """Read a file in the CSV format that Barclays Bank provides downloads in.
-            Edge case: foreign txn's sometimes causes more cols than it should 
-            Returns a pd.DataFrame with columns of 'date' 1 , 'desc' (memo)  5 and 'amount' 3 ."""
-
-            # Edge case: Barclays foreign transaction memo sometimes contains a comma, which is bad.
-            # Use a work-around to read only fixed col count
-            # https://stackoverflow.com/questions/20154303/pandas-read-csv-expects-wrong-number-of-columns-with-ragged-csv-file
-            # Prevents an error where some rows have more cols than they should
-            temp=pd.read_csv(filename,sep='^',header=None,prefix='X',skiprows=1)
-            temp2=temp.X0.str.split(',',expand=True)
-            del temp['X0']
-            df = pd.concat([temp,temp2],axis=1)
-
-            """Rename columns """
-            df.rename(
-                columns={
-                    1: 'date',
-                    5 : 'desc',
-                    3: 'amount'
-                    },
-                inplace=True
-            )
-
-            # cast types to columns for math 
-            df = df.astype({"desc": str, "date": str, "amount": float})
-
-            return df
-
-    def _read_mint_csv(self, filename) -> pd.DataFrame:
-        """Read a file in the CSV format that mint.intuit.com provides downloads in.
-
-        Returns a pd.DataFrame with columns of 'date', 'desc', and 'amount'."""
-
-        df = pd.read_csv(filename, skiprows=0)
-
-        """Rename columns """
-        # df.columns = ['date', 'desc', 'amount']
-        df.rename(
-            columns={
-                "Date": 'date',
-                "Original Description": 'desc',
-                "Amount": 'amount',
-                "Transaction Type": 'type'
-            },
-            inplace=True
-        )
-
-        # mint outputs 2 cols, amount and type, we want 1 col representing a +- figure
-        # manually correct amount based on transaction type colum with either + or - figure
-        df.loc[df['type'] == 'debit', 'amount'] = -df['amount']
-
-        # cast types to columns for math
-        df = df.astype({"desc": str, "date": str, "amount": float})
-        df = df[['date', 'desc', 'amount']]
-
-        return df
-
-    def _read_natwest_csv(self, filename):
-            """Read a file in the CSV format that Natwest Bank provides downloads in.
-            Returns a pd.DataFrame with columns of 'date' 0 , 'desc'  2 and 'amount' 3 .
-            Date, Type, Desc, Value (- or unsigned positive integer), Balance, Account Name, Account Number..
+            splits = line.split("\",\"")
             """
+            0 = NNNN first four of cc
+            1 = Date mm-dd-yy
+            2 = tx date
+            3 = Posted date
+            4 = Description
+            5 = Amount
+            """
+            date = splits[3].replace("\"", "").strip()
+            date = datetime.strptime(date, '%m/%d/%y').strftime('%d/%m/%Y')
+            dates.append(date)
 
-            temp=pd.read_csv(filename,sep='^',header=None,prefix='X',skiprows=1)
-            temp2=temp.X0.str.split(',',expand=True)
-            del temp['X0']
-            df = pd.concat([temp,temp2],axis=1)
+            amounts.append(splits[5].replace(
+                '\n', '').replace("\"", "").replace(",", ""))
 
-            """Rename columns """
-            df.rename(
-                columns={
-                    0: 'date',
-                    2 : 'desc',
-                    3: 'amount'
-                    },
-                inplace=True
-            )
+            # Description
+            descs.append(splits[4])
 
-            # cast types to columns for math 
-            df = df.astype({"desc": str, "date": str, "amount": float})
+        df = pd.DataFrame({'date': dates, 'desc': descs, 'amount': amounts})
 
-            return df
-    
-    def _read_amex_csv(self, filename):
-                """Read a file in the CSV format that AMEX (American Express) provides downloads in.
-                Returns a pd.DataFrame with columns of 'date' 0 , 'desc'  1 and 'amount' 4 .
-                Date, Desc, Account Name, Account Number,  Amount (- or unsigned positive integer)
-                """
+        df['amount'] = df.amount.astype(float)
+        df['desc'] = df.desc.astype(str)
+        df['date'] = df.date.astype(str)
 
-                temp=pd.read_csv(filename,sep='^',header=None,prefix='X',skiprows=1)
-                temp2=temp.X0.str.split(',',expand=True)
-                del temp['X0']
-                df = pd.concat([temp,temp2],axis=1)
-
-                """Rename columns """
-                df.rename(
-                    columns={
-                        0: 'date',
-                        1 : 'desc',
-                        4: 'amount'
-                        },
-                    inplace=True
-                )
-
-                # cast types to columns for math 
-                df = df.astype({"desc": str, "date": str, "amount": float})
-
-                return df
+        return df
 
     def _get_training(self, df):
         """Get training data for the classifier, consisting of tuples of
@@ -404,7 +304,8 @@ class BankClassify():
         for i in subset.index:
             row = subset.iloc[i]
             new_desc = self._strip_numbers(row['desc'])
-            train.append( (new_desc, row['cat']) )
+            features = self._extractor(new_desc)
+            train.append((features, row['cat']))
 
         return train
 
@@ -412,7 +313,7 @@ class BankClassify():
         """Extract tokens from a given string"""
         # TODO: Extend to extract words within words
         # For example, MUSICROOM should give MUSIC and ROOM
-        tokens = self._split_by_multiple_delims(doc, [' ', '/'])
+        tokens = self._split_by_multiple_delims(doc, [' ', '/', '.'])
 
         features = {}
 
@@ -432,3 +333,9 @@ class BankClassify():
         regexp = "|".join(delims)
 
         return re.split(regexp, string)
+
+    def classify(self, text):
+        stripped_text = self._strip_numbers(text)
+        features = self._extractor(stripped_text)
+        guess = self.classifier.classify(features)
+        return guess
